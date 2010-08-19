@@ -6,22 +6,51 @@ from __future__ import division
 import numpy as np
 import scipy.linalg as sl
 
-def vandermat(P,fact):
+def vandermat(P,dx=1):
+    """Returns Vandermonde matrix
+    made of 2P+1 lines
+      1 x x^2 x^3 ... x^2P
+    where x are regularly spaced and centered around 0
+
+    dx is the space between two consecutive x's
+
+    >>> vandermat(2)
+    array([[ 1, -2,  4, -8, 16],
+           [ 1, -1,  1, -1,  1],
+           [ 1,  0,  0,  0,  0],
+           [ 1,  1,  1,  1,  1],
+           [ 1,  2,  4,  8, 16]])
+    """
     N = 2*P+1
-    x = np.arange(-1.0*P,P+0.5).reshape(N,1) * fact
-    m_v = np.ones([N,N])
+    x = np.arange(-P,P+1).reshape(N,1) * dx
+    m_v = np.ones((N,N), x.dtype)
     m_v[:,1:] = x
     m_v = m_v.cumprod(1)
     return m_v
 
 def vandermatx(x):
+    """Return Vandermonde Matrix
+    from an array of x values.
+    If possible, the type is conserved.
+
+    >>> vandermatx([1,2,3])
+    array([[1, 1, 1],
+           [1, 2, 4],
+           [1, 3, 9]])
+    """
+
+    x = np.asarray(x)
     N = x.size
-    m_v = np.ones([N,N])
+    m_v = np.ones((N,N),x.dtype)
     m_v[:,1:] = x.view().reshape(N,1)
     m_v = m_v.cumprod(1)
     return m_v
 
 def vanderinv(v):
+    """Return the inverse matrix of Vandermonde matrix v
+    Cf. Golub algorithm 4.6.1
+    """
+
     N = v.shape[0]
     f = np.eye(N)
     x = v[:,1]
@@ -34,34 +63,81 @@ def vanderinv(v):
             f[i,:] = f[i,:] - f[i+1]*x[k]
     return f
 
-P = 2
-v = vandermat(P,1.0)
-v = vandermatx(np.array([-2,-0.5,1,3]))
-vinv = vanderinv(v)
-                 
-N = v.shape[0]
-print np.max(np.abs(np.dot(vinv,v) - np.eye(N)))
-print np.max(np.abs(np.dot(v,vinv) - np.eye(N)))
+def matrix_is_zero(a, eps):
+    err = np.abs(a).max()
+    if err <= eps:
+        return True
+    else:
+        print "\nshould be zero ="
+        print a
+        return False
 
-x0 = -1
-x1 = 0.5
-x2 = 3
-v = vandermatx(np.array([x0, x1, x2]))
-D0 = np.array([[1,0,0],[-1,1,0],[0,-1,1]])
-N0 = np.diagflat([1,1.0/(x1-x0),1.0/(x2-x1)])
-D1 = np.array([[1,0,0],[0,1,0],[0,-1,1]])
-N1 = np.diagflat([1,1,1.0/(x2-x0)])
-F2 = np.array([[1.0, 0, 0],[0,1,-x1],[0,0,1]])
-F1 = np.array([[1.0, -x0, 0],[0,1,-x0],[0,0,1]])
+def matrix_are_equal(a, b, eps):
+    err = matrix_is_zero(a-b, eps)
+    if err:
+        return True
+    else:
+        print "\na ="
+        print a
+        print "\nb ="
+        print b
+        return False
 
-vinv_bis = np.dot(np.dot(F1,F2),np.dot(np.dot(N1,D1),np.dot(N0,D0)))
-vinv = vanderinv(v)
-U = np.dot(F1,F2)
-L = np.dot(np.dot(N1,D1),np.dot(N0,D0))
+def matrix_is_unit(a, eps):
+    s = a.shape
+    n = s[0]
+    print n
+    if len(s) != 2 or s[1] != n :
+        raise(TypeError("argument should be a square matrix"))
+    return matrix_are_equal(a, np.eye(n, dtype = a.dtype), eps)
 
+def test_vanderinv01():
+    P = 2
+    v = vandermat(P,1)
+    vinv = vanderinv(v)
+    return matrix_is_unit(np.dot(v,vinv), 1e-15)
+
+def test_vanderinv02():
+    v = vandermatx(np.array((-2,-0.5,1,3)))
+    vinv = vanderinv(v)
+    return matrix_is_unit(np.dot(v,vinv), 1e-14)
+
+def matrix_product(ml):
+    return reduce(lambda x, y: np.dot(x,y), ml)
+
+def vanderinv_algorithm_as_matrix_product(x0,x1,x2):
+    v = vandermatx(np.array((x0, x1, x2)))
+    D0 = np.array(((  1,   0,   0),
+                   ( -1,   1,   0),
+                   (  0,  -1,   1)))
+    N0 = np.diagflat((1,
+                       1.0/(x1-x0),
+                           1.0/(x2-x1)))
+    D1 = np.array(((  1,   0,   0),
+                   (  0,   1,   0),
+                   (  0,  -1,   1)))
+    N1 = np.diagflat((1,
+                           1,
+                            1.0/(x2-x0)))
+    F2 = np.array(((  1,   0,   0),
+                   (  0,   1, -x1),
+                   (  0,   0,   1)))
+    F1 = np.array(((  1, -x0,   0),
+                   (  0,   1, -x0),
+                   (  0,   0,   1)))
+    U = np.dot(F1,F2)
+    L = matrix_product((N1,D1,N0,D0))
+    return (U,L)
+    
+def test_vanderinv_algorithm_as_matrix_product():
+    (x0,x1,x2) = (-1, 0.5, 3)
+    (U,L) = vanderinv_algorithm_as_matrix_product(x0,x1,x2)
+    vinv = vanderinv(vandermatx((x0,x1,x2)))
+    return matrix_are_equal(np.dot(U,L), vinv, 1e-15)
 
 def vanderinvrprod(f,x):
-    '''Produit d'un vecteur ligne par l'inverse de la matrice de Vardermonde'''
+    '''Produit d'un vecteur ligne par l'inverse de la matrice de Vardermonde
+    définie par un vecteur d'abscisses'''
     N = np.size(x)
     for k in range(0,N-1):
         for i in range(N-1,k,-1):
@@ -77,23 +153,20 @@ def vanderinvrprod(f,x):
     #
     return f
 
-x = np.array([-2,-0.5,1,3])
-v = vandermatx(x)
-vinv = vanderinv(v)
-xp = np.array([10,5,3,1.0])
-lvinv = np.dot(xp.view().reshape(1,4),vinv)
-lvinv2 = vanderinvrprod(xp,x)
-print(np.max(np.abs(lvinv-lvinv2)))
+def test_vanderinvrprod():
+    x = np.array([-2,-0.5,1,3])
+    v = vandermatx(x)
+    vinv = vanderinv(v)
+    xp = np.array([10,5,3,1.0])
+    lvinv = np.dot(xp.view().reshape(1,4),vinv)
+    lvinv2 = vanderinvrprod(xp,x)
+    return matrix_are_equal(lvinv,lvinv2,1e-14)
 
-# Algorithme centré
+# Algorithme centré version 1
 
-def vanderinvrprodP2(ap,x):
+def vanderinvrprodP2v1(ap,x):
 
-    xm2=x[0]
-    xm1=x[1]
-    x0=x[2]
-    x1=x[3]
-    x2=x[4]
+    xm2,xm1,x0,x1,x2 = x
 
     P = np.array([
             [0,0,1,0,0],
@@ -149,35 +222,26 @@ def vanderinvrprodP2(ap,x):
             [0,0,1,0,0],
             [0,0,-1/(x1-x0),1/(x1-x0),0],
             [0,0,0,-1/(x2-x1),1/(x2-x1)]])
-    
-    m=ap.copy()
-    m=np.dot(m,P)
-    m=np.dot(m,X0)
-    m=np.dot(m,Xm1)
-    m=np.dot(m,X1)
-    m=np.dot(m,Xm2)
-    m=np.dot(m,D4)
-    m=np.dot(m,D3)
-    m=np.dot(m,D2)
-    m=np.dot(m,D1)
-    return m
+    return matrix_product((ap,P,X0,Xm1,X1,Xm2,D4,D3,D2,D1))
 
-x = np.array([-10,-5,1,2,10])
-print(vanderinvrprodP2(np.array([1,-10,100,-1000,10000]),x))
-print(vanderinvrprodP2(np.array([1,-5,25,-125,625]),x))
-print(vanderinvrprodP2(np.array([1,1,1,1,1]),x))
-print(vanderinvrprodP2(np.array([1,2,4,8,16]),x))
-print(vanderinvrprodP2(np.array([1,10,100,1000,10000]),x))
+
+def test_vanderinvrprodP2v1():
+    x = np.array((-10,-5,1,2,10),np.double)
+    v = vandermatx(x)
+    u = np.zeros((5,5),np.double)
+    u[0,:] = vanderinvrprodP2v1(v[0,:],x)
+    u[1,:] = vanderinvrprodP2v1(v[1,:],x)
+    u[2,:] = vanderinvrprodP2v1(v[2,:],x)
+    u[3,:] = vanderinvrprodP2v1(v[3,:],x)
+    u[4,:] = vanderinvrprodP2v1(v[4,:],x)
+    return matrix_is_unit(u, 1e-14)
+
 
 '''version 2'''
 
 def vanderinvrprodP2v2(ap,x):
 
-    xm2=x[0]
-    xm1=x[1]
-    x0=x[2]
-    x1=x[3]
-    x2=x[4]
+    xm2,xm1,x0,x1,x2 = x
 
     X0 = np.array([
             [1,-x0,0,0,0],
@@ -233,37 +297,22 @@ def vanderinvrprodP2v2(ap,x):
             [0,0,0,1,0],
             [1,0,0,0,0],
             [0,0,0,0,1]])
-    m=ap.copy()
-    m=np.dot(m,X0)
-    m=np.dot(m,Xm1)
-    m=np.dot(m,X1)
-    m=np.dot(m,Xm2)
-    m=np.dot(m,D4)
-    m=np.dot(m,D3)
-    m=np.dot(m,D2)
-    m=np.dot(m,D1)
-    m=np.dot(m,PP)
 
-    V = vandermatx(x)
-    u = V.copy()
-    u = np.dot(P,u)
-    u = np.dot(D1,u)
-    u = np.dot(D2,u)
-    u = np.dot(D3,u)
-    u = np.dot(D4,u)
-    u = np.dot(Xm2,u)
-    u = np.dot(X1,u)
-    u = np.dot(Xm1,u)
-    u = np.dot(X0,u)
+    m = matrix_product((ap, X0, Xm1, X1, Xm2, D4, D3, D2, D1, PP))
 
     return m
 
-x = np.array([-10,-5,1,2,10])
-print(vanderinvrprodP2v2(np.array([1,-10,100,-1000,10000]),x))
-print(vanderinvrprodP2v2(np.array([1,-5,25,-125,625]),x))
-print(vanderinvrprodP2v2(np.array([1,1,1,1,1]),x))
-print(vanderinvrprodP2v2(np.array([1,2,4,8,16]),x))
-print(vanderinvrprodP2v2(np.array([1,10,100,1000,10000]),x))
+def test_vanderinvrprodP2v2():
+    x = np.array((-10,-5,1,2,10),np.double)
+    v = vandermatx(x)
+    u = np.zeros((5,5),np.double)
+    u[0,:] = vanderinvrprodP2v2(v[0,:],x)
+    u[1,:] = vanderinvrprodP2v2(v[1,:],x)
+    u[2,:] = vanderinvrprodP2v2(v[2,:],x)
+    u[3,:] = vanderinvrprodP2v2(v[3,:],x)
+    u[4,:] = vanderinvrprodP2v2(v[4,:],x)
+    return matrix_is_unit(u, 1e-14)
+
 
 def vanderinvrprodcentered(fff,x):
     '''Produit d'un vecteur ligne par l'inverse de la matrice de Vardermonde'''
@@ -296,6 +345,20 @@ def vanderinvrprodcentered(fff,x):
     #
     return f[ipn_inv]
 
+def test_vanderinvrprodcentered():
+    x = np.array((-10,-5,1,2,10),np.double)
+    v = vandermatx(x)
+    u = np.zeros((5,5),np.double)
+    u[0,:] = vanderinvrprodcentered(v[0,:],x)
+    u[1,:] = vanderinvrprodcentered(v[1,:],x)
+    u[2,:] = vanderinvrprodcentered(v[2,:],x)
+    u[3,:] = vanderinvrprodcentered(v[3,:],x)
+    u[4,:] = vanderinvrprodcentered(v[4,:],x)
+    return matrix_is_unit(u, 1e-14)
+
+
+scrouitch
+
 def vanderinvrprodcenteredmulti(xp,x):
     '''Produit d'un ensemble de vecteurs ligne par l'inverse de la matrice de Vardermonde'''
     N = x.shape[1]
@@ -327,12 +390,6 @@ def vanderinvrprodcenteredmulti(xp,x):
     #
     return f[:,ipn_inv]
 
-x = np.array([-10,-5,1,2,10])
-print(vanderinvrprodcentered(np.array([1,-10,100,-1000,10000]),x))
-print(vanderinvrprodcentered(np.array([1,-5,25,-125,625]),x))
-print(vanderinvrprodcentered(np.array([1,1,1,1,1]),x))
-print(vanderinvrprodcentered(np.array([1,2,4,8,16]),x))
-print(vanderinvrprodcentered(np.array([1,10,100,1000,10000]),x))
 
 N=13
 x = np.random.uniform(np.arange(N)-N//2-0.5,np.arange(N)-N//2+0.5)
@@ -351,8 +408,8 @@ for i in range(N):
     if i == N//2:
         print ""
 
-x1 = np.array([-10,-5,1,2,10])*1.0
-x2 = np.array([-2,-1,0,1,2])*1.0
+x1 = np.array([-10,-5,1,2,10],np.double)
+x2 = np.array([-2,-1,0,1,2],np.double)
 x = np.vstack([x1,x2])
 xp1 = np.array([1,-10,100,-1000,10000])
 xp2 = np.array([1,2,4,8,16])
@@ -421,4 +478,3 @@ class Pmatrix:
     def __init__(self, dx, P):
         self.m1 = list()
         self.m2 = list()
-    def     
